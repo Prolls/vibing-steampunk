@@ -134,10 +134,17 @@ func TestGetTextPoolInLanguage(t *testing.T) {
 }
 
 func TestCompareObjectLanguages(t *testing.T) {
-	mock := &mockTransportClient{
-		responses: map[string]*http.Response{
-			"/sap/bc/adt/programs/programs/ZTEST/source/main": newTestResponse("REPORT ztest.\nWRITE 'Hello'."),
-			"discovery": newTestResponse("OK"),
+	// Use a func-based mock that returns different content based on sap-language query param
+	mock := &funcMockClient{
+		doFunc: func(req *http.Request) (*http.Response, error) {
+			if strings.Contains(req.URL.Path, "discovery") {
+				return newTestResponse("OK"), nil
+			}
+			lang := req.URL.Query().Get("sap-language")
+			if lang == "FR" {
+				return newTestResponse("REPORT ztest.\nWRITE 'Bonjour'."), nil
+			}
+			return newTestResponse("REPORT ztest.\nWRITE 'Hello'."), nil
 		},
 	}
 
@@ -145,7 +152,6 @@ func TestCompareObjectLanguages(t *testing.T) {
 	transport := NewTransportWithClient(cfg, mock)
 	client := NewClientWithTransport(cfg, transport)
 
-	// Both languages return the same mock response, so no differences expected
 	comparison, err := client.CompareObjectLanguages(context.Background(),
 		"/sap/bc/adt/programs/programs/ZTEST/source/main", "EN", "FR")
 	if err != nil {
@@ -159,10 +165,19 @@ func TestCompareObjectLanguages(t *testing.T) {
 		t.Errorf("TargetLang = %v, want FR", comparison.TargetLang)
 	}
 
-	// Same mock response → no differences
-	if len(comparison.Entries) != 0 {
-		t.Errorf("Expected 0 diff entries (same mock response), got %d", len(comparison.Entries))
+	// Line 2 differs: 'Hello' vs 'Bonjour'
+	if len(comparison.Entries) == 0 {
+		t.Error("Expected at least 1 diff entry for differing content")
 	}
+}
+
+// funcMockClient is a mock HTTP client that uses a function for responses.
+type funcMockClient struct {
+	doFunc func(req *http.Request) (*http.Response, error)
+}
+
+func (m *funcMockClient) Do(req *http.Request) (*http.Response, error) {
+	return m.doFunc(req)
 }
 
 func TestOverrideLanguageInRequest(t *testing.T) {
