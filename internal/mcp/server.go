@@ -4,6 +4,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -201,6 +202,29 @@ func parseFeatureMode(s string) adt.FeatureMode {
 // ServeStdio starts the MCP server on stdin/stdout.
 func (s *Server) ServeStdio() error {
 	return server.ServeStdio(s.mcpServer)
+}
+
+// ServeHTTP starts the MCP server as an HTTP server with SSE transport.
+// addr is the listen address (e.g., ":8080").
+// baseURL is the externally accessible URL (e.g., "https://app.cfapps.eu10.hana.ondemand.com").
+func (s *Server) ServeHTTP(addr string, baseURL string) error {
+	sseServer := server.NewSSEServer(s.mcpServer,
+		server.WithBaseURL(baseURL),
+	)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"ok"}`)
+	})
+	mux.Handle("/", sseServer)
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+	return srv.ListenAndServe()
 }
 
 // registerTools registers ADT tools with the MCP server based on mode, disabled groups, and granular config.

@@ -1,0 +1,60 @@
+---
+# Cloud Foundry manifest for vsp (Vibing Steampunk) — SAP Analyst MCP backend
+#
+# Prerequisites:
+#   1. Create a BTP Destination named "SAP_DS7_ANALYST" (BasicAuthentication, HTTP):
+#        URL: https://saps4ds7.lesaffre.fr:8443
+#        User: <technical-user>
+#        Password: <password>
+#        Additional properties:
+#          sap-client: 100
+#          WebIDEEnabled: true
+#
+#   2. Create a destination service instance (if not already existing):
+#        cf create-service destination lite sap-vsp-destination-service
+#
+#   3. Set the CF app public URL (needed so the SSE server can generate correct message endpoint URLs):
+#        cf set-env sap-vsp-analyst VSP_BASE_URL https://sap-vsp-analyst-<space>.cfapps.eu10.hana.ondemand.com
+#        cf restage sap-vsp-analyst
+#
+# Phase 2 (Principal Propagation): change destination authentication to PrincipalPropagation
+# and add per-request token exchange in pkg/btp/destination.go.
+
+applications:
+  - name: sap-vsp-analyst
+    memory: 256M
+    disk_quota: 512M
+    buildpacks:
+      - go_buildpack
+    command: vsp --http --btp-destination SAP_DS7_ANALYST --mode expert --read-only --disabled-groups DTH
+    health-check-type: http
+    health-check-http-endpoint: /health
+    services:
+      - sap-vsp-destination-service   # BTP Destination service instance (provides VCAP_SERVICES)
+    env:
+      GOVERSION: go1.23.x
+      GO_INSTALL_PACKAGE_SPEC: ./cmd/vsp
+
+      # BTP Destination name — connection details (URL, user, password) are resolved at startup
+      VSP_BTP_DESTINATION: SAP_DS7_ANALYST
+
+      # VSP_BASE_URL: set via cf set-env after first push (CF app route URL)
+      # cf set-env sap-vsp-analyst VSP_BASE_URL https://sap-vsp-analyst-<space>.cfapps.eu10.hana.ondemand.com
+
+      # SAP connection overrides — NOT needed when using BTP Destination
+      # (kept for local fallback with --url/--user/--password flags)
+      SAP_CLIENT: "100"
+      SAP_LANGUAGE: EN
+      SAP_INSECURE: "true"
+
+      # Tool configuration
+      SAP_MODE: expert
+      SAP_READ_ONLY: "true"
+      SAP_BLOCK_FREE_SQL: "false"
+
+      # Disable debug tools, HANA debugger, transport (analyst read-only use case)
+      SAP_DISABLED_GROUPS: DTH
+
+      # Feature flags
+      SAP_FEATURE_AMDP: "off"
+      SAP_FEATURE_TRANSPORT: "off"
