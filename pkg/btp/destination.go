@@ -14,9 +14,11 @@ import (
 
 // DestinationConfig holds the SAP connection details resolved from a BTP Destination.
 type DestinationConfig struct {
-	URL      string
-	Username string
-	Password string
+	URL       string
+	Username  string
+	Password  string
+	ProxyURL  string // non-empty for OnPremise destinations (Cloud Connector proxy)
+	ProxyAuth string // Proxy-Authorization header value (e.g. "Bearer eyJ...")
 }
 
 // vcapDestinationBinding represents a single destination service binding in VCAP_SERVICES.
@@ -29,6 +31,17 @@ type vcapDestinationBinding struct {
 		URL             string `json:"url"` // fallback if URI is absent
 	} `json:"credentials"`
 	Name string `json:"name"`
+}
+
+// vcapConnectivityBinding represents a single connectivity service binding in VCAP_SERVICES.
+type vcapConnectivityBinding struct {
+	Credentials struct {
+		ClientID            string `json:"clientid"`
+		ClientSecret        string `json:"clientsecret"`
+		URL                 string `json:"url"` // XSUAA base URL for token fetch
+		OnPremiseProxyHost  string `json:"onpremise_proxy_host"`
+		OnPremiseProxyPort  string `json:"onpremise_proxy_http_port"`
+	} `json:"credentials"`
 }
 
 // ResolveDestination reads the BTP Destination service from VCAP_SERVICES,
@@ -107,7 +120,16 @@ func ResolveDestination(destinationName string) (*DestinationConfig, error) {
 			Authentication string `json:"Authentication"`
 			User           string `json:"User"`
 			Password       string `json:"Password"`
+			ProxyType      string `json:"ProxyType"` // "OnPremise" or "Internet"
 		} `json:"destinationConfiguration"`
+		// proxyConfiguration is sometimes returned by newer destination service versions;
+		// if present we use it, otherwise we fall back to reading the connectivity service binding.
+		ProxyConfiguration *struct {
+			Host          string `json:"host"`
+			Port          string `json:"port"`
+			Protocol      string `json:"protocol"`
+			Authorization string `json:"authorization"`
+		} `json:"proxyConfiguration"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse destination response: %w", err)
@@ -125,11 +147,71 @@ func ResolveDestination(destinationName string) (*DestinationConfig, error) {
 		return nil, fmt.Errorf("destination %q is missing User or Password fields", destinationName)
 	}
 
-	return &DestinationConfig{
+	cfg := &DestinationConfig{
 		URL:      dc.URL,
 		Username: dc.User,
 		Password: dc.Password,
-	}, nil
+	}
+
+	if dc.ProxyType == "OnPremise" {
+		// Prefer proxyConfiguration from the destination service response if present
+		if p := result.ProxyConfiguration; p != nil && p.Host != "" {
+			proto := p.Protocol
+			if proto == "" {
+				proto = "http"
+			}
+			cfg.ProxyURL = fmt.Sprintf("%s://%s:%s", proto, p.Host, p.Port)
+			cfg.ProxyAuth = p.Authorization
+		} else {
+			// Fall back: read connectivity service binding and fetch a token ourselves
+			proxyURL, proxyAuth, err := resolveConnectivityProxy()
+			if err != nil {
+				return nil, fmt.Errorf("OnPremise destination %q requires connectivity service: %w", destinationName, err)
+			}
+			cfg.ProxyURL = proxyURL
+			cfg.ProxyAuth = proxyAuth
+		}
+	}
+
+	return cfg, nil
+}
+
+// resolveConnectivityProxy reads the SAP Connectivity service binding from VCAP_SERVICES,
+// fetches a client_credentials token, and returns the proxy URL and Proxy-Authorization value.
+// This is required for OnPremise (Cloud Connector) destinations in Cloud Foundry.
+func resolveConnectivityProxy() (proxyURL, proxyAuth string, err error) {
+	raw := os.Getenv("VCAP_SERVICES")
+	if raw == "" {
+		return "", "", fmt.Errorf("VCAP_SERVICES not set")
+	}
+
+	var services map[string][]vcapConnectivityBinding
+	if err := json.Unmarshal([]byte(raw), &services); err != nil {
+		return "", "", fmt.Errorf("failed to parse VCAP_SERVICES: %w", err)
+	}
+
+	bindings, ok := services["connectivity"]
+	if !ok || len(bindings) == 0 {
+		return "", "", fmt.Errorf("no connectivity service binding found in VCAP_SERVICES (bind app to a connectivity service instance)")
+	}
+	creds := bindings[0].Credentials
+
+	if creds.OnPremiseProxyHost == "" {
+		return "", "", fmt.Errorf("connectivity service binding has no onpremise_proxy_host field")
+	}
+	port := creds.OnPremiseProxyPort
+	if port == "" {
+		port = "20003"
+	}
+	proxyURL = fmt.Sprintf("http://%s:%s", creds.OnPremiseProxyHost, port)
+
+	token, err := fetchClientCredentialsToken(creds.URL, creds.ClientID, creds.ClientSecret)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to obtain connectivity token: %w", err)
+	}
+	proxyAuth = "Bearer " + token
+
+	return proxyURL, proxyAuth, nil
 }
 
 // fetchClientCredentialsToken obtains an OAuth2 access token using client_credentials grant.

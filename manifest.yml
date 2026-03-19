@@ -31,6 +31,7 @@ applications:
     health-check-http-endpoint: /health
     services:
       - sap-vsp-destination-service   # BTP Destination service instance (provides VCAP_SERVICES)
+      - sap-vsp-connectivity          # SAP Connectivity service (Cloud Connector proxy for OnPremise)
     env:
       GOVERSION: go1.23.x
       GO_INSTALL_PACKAGE_SPEC: ./cmd/vsp

@@ -88,6 +88,10 @@ type Config struct {
 	// Debugger configuration
 	TerminalID string // SAP GUI terminal ID for cross-tool breakpoint sharing
 
+	// Cloud Connector proxy (OnPremise BTP destinations)
+	ProxyURL  string // e.g., "http://connectivityproxy.internal.cf.eu10.hana.ondemand.com:20003"
+	ProxyAuth string // Proxy-Authorization header value (e.g., "Bearer eyJ...")
+
 	// Granular tool visibility (from .vsp.json)
 	// Key: tool name, Value: true=enabled, false=disabled
 	// Takes highest priority over mode and disabled groups
@@ -141,6 +145,10 @@ func NewServer(cfg *Config) *Server {
 		safety.AllowTransportableEdits = true
 	}
 	opts = append(opts, adt.WithSafety(safety))
+
+	if cfg.ProxyURL != "" {
+		opts = append(opts, adt.WithProxy(cfg.ProxyURL, cfg.ProxyAuth))
+	}
 
 	adtClient := adt.NewClient(cfg.BaseURL, cfg.Username, cfg.Password, opts...)
 

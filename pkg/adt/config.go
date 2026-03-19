@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"time"
 )
 
@@ -48,6 +49,10 @@ type Config struct {
 	Features FeatureConfig
 	// TerminalID for debugger session (shared with SAP GUI for cross-tool debugging)
 	TerminalID string
+	// ProxyURL is the Cloud Connector proxy URL (e.g., "http://connectivityproxy.internal.cf.eu10.hana.ondemand.com:20003")
+	ProxyURL string
+	// ProxyAuth is the Proxy-Authorization header value required by Cloud Connector (e.g., "Bearer eyJ...")
+	ProxyAuth string
 }
 
 // Option is a functional option for configuring the ADT client.
@@ -203,6 +208,15 @@ func WithFeatures(features FeatureConfig) Option {
 	}
 }
 
+// WithProxy sets the Cloud Connector proxy URL and authorization token.
+// Required for OnPremise (Cloud Connector) BTP destinations.
+func WithProxy(proxyURL, proxyAuth string) Option {
+	return func(c *Config) {
+		c.ProxyURL = proxyURL
+		c.ProxyAuth = proxyAuth
+	}
+}
+
 // WithTerminalID sets the debugger terminal ID.
 // Use the same ID as SAP GUI to enable cross-tool breakpoint sharing.
 // SAP GUI stores this in: Windows Registry HKCU\Software\SAP\ABAP Debugging\TerminalID
@@ -213,20 +227,46 @@ func WithTerminalID(terminalID string) Option {
 	}
 }
 
+// proxyAuthTransport wraps an http.RoundTripper and injects a Proxy-Authorization
+// header on every request — required by SAP Cloud Connector for OnPremise destinations.
+type proxyAuthTransport struct {
+	wrapped   http.RoundTripper
+	proxyAuth string
+}
+
+func (t *proxyAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	reqClone := req.Clone(req.Context())
+	reqClone.Header.Set("Proxy-Authorization", t.proxyAuth)
+	return t.wrapped.RoundTrip(reqClone)
+}
+
 // NewHTTPClient creates an http.Client configured for the given Config.
 func (c *Config) NewHTTPClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 
+	proxyFunc := http.ProxyFromEnvironment
+	if c.ProxyURL != "" {
+		proxyURL, err := url.Parse(c.ProxyURL)
+		if err == nil {
+			proxyFunc = http.ProxyURL(proxyURL)
+		}
+	}
+
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment, // Honor HTTP_PROXY/HTTPS_PROXY env vars
+		Proxy: proxyFunc,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: c.InsecureSkipVerify,
 		},
 	}
 
+	var roundTripper http.RoundTripper = transport
+	if c.ProxyAuth != "" {
+		roundTripper = &proxyAuthTransport{wrapped: transport, proxyAuth: c.ProxyAuth}
+	}
+
 	return &http.Client{
 		Jar:       jar,
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   c.Timeout,
 	}
 }
