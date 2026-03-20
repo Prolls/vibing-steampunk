@@ -171,6 +171,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 		cfg.Password = destConfig.Password
 		cfg.ProxyURL = destConfig.ProxyURL
 		cfg.ProxyAuth = destConfig.ProxyAuth
+		cfg.ProxyRefresh = destConfig.ProxyRefresh
 		if cfg.Verbose {
 			fmt.Fprintf(os.Stderr, "[VERBOSE] Destination resolved: URL=%s, User=%s\n", cfg.BaseURL, cfg.Username)
 			if destConfig.ProxyURL != "" {

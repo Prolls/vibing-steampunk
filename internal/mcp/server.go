@@ -89,8 +89,9 @@ type Config struct {
 	TerminalID string // SAP GUI terminal ID for cross-tool breakpoint sharing
 
 	// Cloud Connector proxy (OnPremise BTP destinations)
-	ProxyURL  string // e.g., "http://connectivityproxy.internal.cf.eu10.hana.ondemand.com:20003"
-	ProxyAuth string // Proxy-Authorization header value (e.g., "Bearer eyJ...")
+	ProxyURL     string               // e.g., "http://connectivityproxy.internal.cf.eu10.hana.ondemand.com:20003"
+	ProxyAuth    string               // Proxy-Authorization header value (e.g., "Bearer eyJ...")
+	ProxyRefresh func() (string, error) // called on 407 to renew the token
 
 	// Granular tool visibility (from .vsp.json)
 	// Key: tool name, Value: true=enabled, false=disabled
@@ -147,7 +148,7 @@ func NewServer(cfg *Config) *Server {
 	opts = append(opts, adt.WithSafety(safety))
 
 	if cfg.ProxyURL != "" {
-		opts = append(opts, adt.WithProxy(cfg.ProxyURL, cfg.ProxyAuth))
+		opts = append(opts, adt.WithProxy(cfg.ProxyURL, cfg.ProxyAuth, cfg.ProxyRefresh))
 	}
 
 	adtClient := adt.NewClient(cfg.BaseURL, cfg.Username, cfg.Password, opts...)

@@ -14,11 +14,12 @@ import (
 
 // DestinationConfig holds the SAP connection details resolved from a BTP Destination.
 type DestinationConfig struct {
-	URL       string
-	Username  string
-	Password  string
-	ProxyURL  string // non-empty for OnPremise destinations (Cloud Connector proxy)
-	ProxyAuth string // Proxy-Authorization header value (e.g. "Bearer eyJ...")
+	URL          string
+	Username     string
+	Password     string
+	ProxyURL     string               // non-empty for OnPremise destinations (Cloud Connector proxy)
+	ProxyAuth    string               // Proxy-Authorization header value (e.g. "Bearer eyJ...")
+	ProxyRefresh func() (string, error) // fetches a fresh ProxyAuth value (for token expiry)
 }
 
 // vcapDestinationBinding represents a single destination service binding in VCAP_SERVICES.
@@ -164,12 +165,13 @@ func ResolveDestination(destinationName string) (*DestinationConfig, error) {
 			cfg.ProxyAuth = p.Authorization
 		} else {
 			// Fall back: read connectivity service binding and fetch a token ourselves
-			proxyURL, proxyAuth, err := resolveConnectivityProxy()
+			proxyURL, proxyAuth, refresh, err := resolveConnectivityProxy()
 			if err != nil {
 				return nil, fmt.Errorf("OnPremise destination %q requires connectivity service: %w", destinationName, err)
 			}
 			cfg.ProxyURL = proxyURL
 			cfg.ProxyAuth = proxyAuth
+			cfg.ProxyRefresh = refresh
 		}
 	}
 
@@ -177,27 +179,27 @@ func ResolveDestination(destinationName string) (*DestinationConfig, error) {
 }
 
 // resolveConnectivityProxy reads the SAP Connectivity service binding from VCAP_SERVICES,
-// fetches a client_credentials token, and returns the proxy URL and Proxy-Authorization value.
-// This is required for OnPremise (Cloud Connector) destinations in Cloud Foundry.
-func resolveConnectivityProxy() (proxyURL, proxyAuth string, err error) {
+// fetches a client_credentials token, and returns the proxy URL, Proxy-Authorization value,
+// and a refresh function that can be called to renew the token when it expires (HTTP 407).
+func resolveConnectivityProxy() (proxyURL, proxyAuth string, refresh func() (string, error), err error) {
 	raw := os.Getenv("VCAP_SERVICES")
 	if raw == "" {
-		return "", "", fmt.Errorf("VCAP_SERVICES not set")
+		return "", "", nil, fmt.Errorf("VCAP_SERVICES not set")
 	}
 
 	var services map[string][]vcapConnectivityBinding
 	if err := json.Unmarshal([]byte(raw), &services); err != nil {
-		return "", "", fmt.Errorf("failed to parse VCAP_SERVICES: %w", err)
+		return "", "", nil, fmt.Errorf("failed to parse VCAP_SERVICES: %w", err)
 	}
 
 	bindings, ok := services["connectivity"]
 	if !ok || len(bindings) == 0 {
-		return "", "", fmt.Errorf("no connectivity service binding found in VCAP_SERVICES (bind app to a connectivity service instance)")
+		return "", "", nil, fmt.Errorf("no connectivity service binding found in VCAP_SERVICES (bind app to a connectivity service instance)")
 	}
 	creds := bindings[0].Credentials
 
 	if creds.OnPremiseProxyHost == "" {
-		return "", "", fmt.Errorf("connectivity service binding has no onpremise_proxy_host field")
+		return "", "", nil, fmt.Errorf("connectivity service binding has no onpremise_proxy_host field")
 	}
 	port := creds.OnPremiseProxyPort
 	if port == "" {
@@ -205,13 +207,21 @@ func resolveConnectivityProxy() (proxyURL, proxyAuth string, err error) {
 	}
 	proxyURL = fmt.Sprintf("http://%s:%s", creds.OnPremiseProxyHost, port)
 
-	token, err := fetchClientCredentialsToken(creds.URL, creds.ClientID, creds.ClientSecret)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to obtain connectivity token: %w", err)
+	// refresh is a closure over the XSUAA credentials — call it any time to get a fresh token
+	refresh = func() (string, error) {
+		token, err := fetchClientCredentialsToken(creds.URL, creds.ClientID, creds.ClientSecret)
+		if err != nil {
+			return "", fmt.Errorf("failed to renew connectivity token: %w", err)
+		}
+		return "Bearer " + token, nil
 	}
-	proxyAuth = "Bearer " + token
 
-	return proxyURL, proxyAuth, nil
+	proxyAuth, err = refresh()
+	if err != nil {
+		return "", "", nil, err
+	}
+
+	return proxyURL, proxyAuth, refresh, nil
 }
 
 // fetchClientCredentialsToken obtains an OAuth2 access token using client_credentials grant.
