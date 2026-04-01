@@ -25,19 +25,15 @@ applications:
     memory: 256M
     disk_quota: 512M
     buildpacks:
-      - go_buildpack
-    command: vsp --http --btp-destination SAP_DS7_ANALYST --mode expert --read-only --disabled-groups DTH
+      - binary_buildpack
     health-check-type: http
     health-check-http-endpoint: /health
     services:
       - sap-vsp-destination-service   # BTP Destination service instance (provides VCAP_SERVICES)
       - sap-vsp-connectivity          # SAP Connectivity service (Cloud Connector proxy for OnPremise)
     env:
-      GOVERSION: go1.23.x
-      GO_INSTALL_PACKAGE_SPEC: ./cmd/vsp
-
       # BTP Destination name — connection details (URL, user, password) are resolved at startup
-      VSP_BTP_DESTINATION: SAP_DS7_ANALYST
+      VSP_BTP_DESTINATION: SAP_ANALYST_VSP_MCP
 
       # VSP_BASE_URL: set via cf set-env after first push (CF app route URL)
       # cf set-env sap-vsp-analyst VSP_BASE_URL https://sap-vsp-analyst-<space>.cfapps.eu10.hana.ondemand.com
