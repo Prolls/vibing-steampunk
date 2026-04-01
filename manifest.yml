@@ -26,6 +26,7 @@ applications:
     disk_quota: 512M
     buildpacks:
       - binary_buildpack
+    command: ./vsp_linux --http --btp-destination SAP_ANALYST_VSP_MCP --mode expert --read-only --disabled-groups DTH
     health-check-type: http
     health-check-http-endpoint: /health
     services:
