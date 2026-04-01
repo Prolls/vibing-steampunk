@@ -23,6 +23,13 @@ var AbapGitStandalone []byte
 //go:embed abapgit-full.zip
 var AbapGitFull []byte
 
+// GetDependencyZIP returns the embedded ZIP data for a named dependency, or nil if not available.
+func GetDependencyZIP(name string) []byte {
+	// No ZIPs are currently embedded (placeholders only)
+	_ = name
+	return nil
+}
+
 // DependencyInfo describes an available dependency package.
 type DependencyInfo struct {
 	Name        string // e.g., "abapgit-standalone", "abapgit-dev"

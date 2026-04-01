@@ -4,11 +4,13 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
 	"github.com/oisee/vibing-steampunk/internal/mcp"
 	"github.com/oisee/vibing-steampunk/pkg/adt"
+	"github.com/oisee/vibing-steampunk/pkg/btp"
 	"github.com/oisee/vibing-steampunk/pkg/config"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -120,6 +122,14 @@ func init() {
 	// Debugger configuration
 	rootCmd.Flags().StringVar(&cfg.TerminalID, "terminal-id", "", "SAP GUI terminal ID for cross-tool breakpoint sharing")
 
+	// HTTP transport options (for BTP/Cloud Foundry deployment)
+	rootCmd.Flags().Bool("http", false, "Run in HTTP mode (SSE transport) instead of STDIO — required for BTP CF deployment")
+	rootCmd.Flags().Int("port", 8080, "HTTP server port (only used with --http; overridden by PORT env var)")
+	rootCmd.Flags().String("base-url", "", "Externally accessible base URL for HTTP mode (e.g., https://app.cfapps.eu10.hana.ondemand.com)")
+
+	// BTP Destination service integration
+	rootCmd.Flags().String("btp-destination", "", "BTP Destination name to resolve SAP connection (basic auth). Requires binding to a destination service instance. Overrides --url/--user/--password.")
+
 	// Output options
 	rootCmd.Flags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "Enable verbose output to stderr")
 
@@ -165,6 +175,33 @@ func init() {
 func runServer(cmd *cobra.Command, args []string) error {
 	// Resolve configuration with priority: flags > env vars > defaults
 	resolveConfig(cmd)
+
+	// BTP Destination service: resolve connection details before validation
+	btpDest, _ := cmd.Flags().GetString("btp-destination")
+	if btpDest == "" {
+		btpDest = os.Getenv("VSP_BTP_DESTINATION")
+	}
+	if btpDest != "" {
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[VERBOSE] Resolving BTP Destination: %s\n", btpDest)
+		}
+		destConfig, err := btp.ResolveDestination(btpDest)
+		if err != nil {
+			return fmt.Errorf("failed to resolve BTP destination %q: %w", btpDest, err)
+		}
+		cfg.BaseURL = destConfig.URL
+		cfg.Username = destConfig.Username
+		cfg.Password = destConfig.Password
+		cfg.ProxyURL = destConfig.ProxyURL
+		cfg.ProxyAuth = destConfig.ProxyAuth
+		cfg.ProxyRefresh = destConfig.ProxyRefresh
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[VERBOSE] Destination resolved: URL=%s, User=%s\n", cfg.BaseURL, cfg.Username)
+			if destConfig.ProxyURL != "" {
+				fmt.Fprintf(os.Stderr, "[VERBOSE] OnPremise proxy: %s\n", destConfig.ProxyURL)
+			}
+		}
+	}
 
 	// Validate configuration
 	if err := validateConfig(); err != nil {
@@ -244,6 +281,34 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	// Create and start MCP server
 	server := mcp.NewServer(cfg)
+
+	// HTTP mode: for BTP Cloud Foundry deployment
+	httpMode, _ := cmd.Flags().GetBool("http")
+	if httpMode {
+		// Determine port: PORT env var (CF standard) > --port flag > default 8080
+		port, _ := cmd.Flags().GetInt("port")
+		if envPort := os.Getenv("PORT"); envPort != "" {
+			if p, err := strconv.Atoi(envPort); err == nil {
+				port = p
+			}
+		}
+		addr := fmt.Sprintf(":%d", port)
+
+		// Base URL: --base-url flag > VSP_BASE_URL env var > local fallback
+		baseURL, _ := cmd.Flags().GetString("base-url")
+		if baseURL == "" {
+			baseURL = os.Getenv("VSP_BASE_URL")
+		}
+		if baseURL == "" {
+			baseURL = fmt.Sprintf("http://localhost%s", addr)
+		}
+
+		if cfg.Verbose {
+			fmt.Fprintf(os.Stderr, "[VERBOSE] HTTP mode: listening on %s, base URL: %s\n", addr, baseURL)
+		}
+		return server.ServeHTTP(addr, baseURL)
+	}
+
 	return server.ServeStdio()
 }
 

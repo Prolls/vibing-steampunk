@@ -3,8 +3,11 @@ package adt
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
+	"sync"
 	"time"
 )
 
@@ -48,6 +51,12 @@ type Config struct {
 	Features FeatureConfig
 	// TerminalID for debugger session (shared with SAP GUI for cross-tool debugging)
 	TerminalID string
+	// ProxyURL is the Cloud Connector proxy URL (e.g., "http://connectivityproxy.internal.cf.eu10.hana.ondemand.com:20003")
+	ProxyURL string
+	// ProxyAuth is the Proxy-Authorization header value required by Cloud Connector (e.g., "Bearer eyJ...")
+	ProxyAuth string
+	// ProxyAuthRefresh fetches a fresh Proxy-Authorization value when the current token expires (407).
+	ProxyAuthRefresh func() (string, error)
 }
 
 // Option is a functional option for configuring the ADT client.
@@ -203,6 +212,17 @@ func WithFeatures(features FeatureConfig) Option {
 	}
 }
 
+// WithProxy sets the Cloud Connector proxy URL, authorization token, and optional refresh function.
+// Required for OnPremise (Cloud Connector) BTP destinations.
+// refresh, if non-nil, is called on HTTP 407 to obtain a fresh Proxy-Authorization value.
+func WithProxy(proxyURL, proxyAuth string, refresh func() (string, error)) Option {
+	return func(c *Config) {
+		c.ProxyURL = proxyURL
+		c.ProxyAuth = proxyAuth
+		c.ProxyAuthRefresh = refresh
+	}
+}
+
 // WithTerminalID sets the debugger terminal ID.
 // Use the same ID as SAP GUI to enable cross-tool breakpoint sharing.
 // SAP GUI stores this in: Windows Registry HKCU\Software\SAP\ABAP Debugging\TerminalID
@@ -213,20 +233,80 @@ func WithTerminalID(terminalID string) Option {
 	}
 }
 
+// proxyAuthTransport wraps an http.RoundTripper and injects a Proxy-Authorization
+// header on every request — required by SAP Cloud Connector for OnPremise destinations.
+// When the proxy returns HTTP 407, it calls refresh (if set) to obtain a fresh token and retries once.
+type proxyAuthTransport struct {
+	wrapped  http.RoundTripper
+	mu       sync.Mutex
+	token    string
+	refresh  func() (string, error) // called on 407 to renew the token
+}
+
+func (t *proxyAuthTransport) currentToken() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.token
+}
+
+func (t *proxyAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	reqClone := req.Clone(req.Context())
+	reqClone.Header.Set("Proxy-Authorization", t.currentToken())
+	resp, err := t.wrapped.RoundTrip(reqClone)
+	if err != nil {
+		return nil, err
+	}
+
+	// On 407, refresh token and retry once
+	if resp.StatusCode == http.StatusProxyAuthRequired && t.refresh != nil {
+		resp.Body.Close()
+		newToken, err := t.refresh()
+		if err != nil {
+			return nil, fmt.Errorf("proxy token refresh failed after 407: %w", err)
+		}
+		t.mu.Lock()
+		t.token = newToken
+		t.mu.Unlock()
+
+		reqClone2 := req.Clone(req.Context())
+		reqClone2.Header.Set("Proxy-Authorization", newToken)
+		return t.wrapped.RoundTrip(reqClone2)
+	}
+
+	return resp, nil
+}
+
 // NewHTTPClient creates an http.Client configured for the given Config.
 func (c *Config) NewHTTPClient() *http.Client {
 	jar, _ := cookiejar.New(nil)
 
+	proxyFunc := http.ProxyFromEnvironment
+	if c.ProxyURL != "" {
+		proxyURL, err := url.Parse(c.ProxyURL)
+		if err == nil {
+			proxyFunc = http.ProxyURL(proxyURL)
+		}
+	}
+
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment, // Honor HTTP_PROXY/HTTPS_PROXY env vars
+		Proxy: proxyFunc,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: c.InsecureSkipVerify,
 		},
 	}
 
+	var roundTripper http.RoundTripper = transport
+	if c.ProxyAuth != "" {
+		roundTripper = &proxyAuthTransport{
+			wrapped: transport,
+			token:   c.ProxyAuth,
+			refresh: c.ProxyAuthRefresh,
+		}
+	}
+
 	return &http.Client{
 		Jar:       jar,
-		Transport: transport,
+		Transport: roundTripper,
 		Timeout:   c.Timeout,
 	}
 }
