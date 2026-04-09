@@ -768,18 +768,25 @@ type PublishResult struct {
 // PublishServiceBinding publishes a service binding to make it available as OData service.
 // serviceName is the service binding name (e.g., "ZTRAVEL_SB")
 // serviceVersion is typically "0001"
-func (c *Client) PublishServiceBinding(ctx context.Context, serviceName string, serviceVersion string) (*PublishResult, error) {
-	return c.publishUnpublishServiceBinding(ctx, "publishjobs", serviceName, serviceVersion)
+// bindingVersion is "V2" or "V4" (default: "V4")
+func (c *Client) PublishServiceBinding(ctx context.Context, serviceName string, serviceVersion string, bindingVersion string) (*PublishResult, error) {
+	return c.publishUnpublishServiceBinding(ctx, "publishjobs", serviceName, serviceVersion, bindingVersion)
 }
 
 // UnpublishServiceBinding unpublishes a service binding.
-func (c *Client) UnpublishServiceBinding(ctx context.Context, serviceName string, serviceVersion string) (*PublishResult, error) {
-	return c.publishUnpublishServiceBinding(ctx, "unpublishjobs", serviceName, serviceVersion)
+// bindingVersion is "V2" or "V4" (default: "V4")
+func (c *Client) UnpublishServiceBinding(ctx context.Context, serviceName string, serviceVersion string, bindingVersion string) (*PublishResult, error) {
+	return c.publishUnpublishServiceBinding(ctx, "unpublishjobs", serviceName, serviceVersion, bindingVersion)
 }
 
-func (c *Client) publishUnpublishServiceBinding(ctx context.Context, action, serviceName, serviceVersion string) (*PublishResult, error) {
+func (c *Client) publishUnpublishServiceBinding(ctx context.Context, action, serviceName, serviceVersion, bindingVersion string) (*PublishResult, error) {
 	if serviceVersion == "" {
 		serviceVersion = "0001"
+	}
+	// Determine endpoint based on OData binding version (V2 or V4)
+	odataSegment := "odatav4"
+	if strings.EqualFold(bindingVersion, "V2") {
+		odataSegment = "odatav2"
 	}
 
 	params := url.Values{}
@@ -790,7 +797,7 @@ func (c *Client) publishUnpublishServiceBinding(ctx context.Context, action, ser
   <adtcore:objectReference adtcore:name="%s"/>
 </adtcore:objectReferences>`, serviceName)
 
-	path := fmt.Sprintf("/sap/bc/adt/businessservices/odatav2/%s", action)
+	path := fmt.Sprintf("/sap/bc/adt/businessservices/%s/%s", odataSegment, action)
 
 	resp, err := c.transport.Request(ctx, path, &RequestOptions{
 		Method:      http.MethodPost,

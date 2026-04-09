@@ -358,6 +358,10 @@ func (s *Server) registerTools(mode string, disabledGroups string, toolsConfig m
 		"LockObject":   true,
 		"UnlockObject": true,
 
+		// Service Binding Publish/Unpublish (RAP/OData)
+		"PublishServiceBinding":   true,
+		"UnpublishServiceBinding": true,
+
 		// File-based operations (2)
 		"ImportFromFile": true, // File → SAP (replaces DeployFromFile)
 		"ExportToFile":   true, // SAP → File (replaces SaveToFile)
@@ -1491,6 +1495,9 @@ func (s *Server) registerTools(mode string, disabledGroups string, toolsConfig m
 		mcp.WithString("service_version",
 			mcp.Description("Service version (default: 0001)"),
 		),
+		mcp.WithString("binding_version",
+			mcp.Description("OData binding version: 'V2' or 'V4' (default: V4)"),
+		),
 	), s.handlePublishServiceBinding)
 	}
 
@@ -1505,6 +1512,9 @@ func (s *Server) registerTools(mode string, disabledGroups string, toolsConfig m
 		),
 		mcp.WithString("service_version",
 			mcp.Description("Service version (default: 0001)"),
+		),
+		mcp.WithString("binding_version",
+			mcp.Description("OData binding version: 'V2' or 'V4' (default: V4)"),
 		),
 	), s.handleUnpublishServiceBinding)
 	}

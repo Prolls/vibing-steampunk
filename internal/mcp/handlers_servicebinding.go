@@ -23,7 +23,12 @@ func (s *Server) handlePublishServiceBinding(ctx context.Context, request mcp.Ca
 		serviceVersion = sv
 	}
 
-	result, err := s.adtClient.PublishServiceBinding(ctx, serviceName, serviceVersion)
+	bindingVersion := "V4"
+	if bv, ok := request.Params.Arguments["binding_version"].(string); ok && bv != "" {
+		bindingVersion = bv
+	}
+
+	result, err := s.adtClient.PublishServiceBinding(ctx, serviceName, serviceVersion, bindingVersion)
 	if err != nil {
 		return newToolResultError(fmt.Sprintf("Failed to publish service binding: %v", err)), nil
 	}
@@ -43,7 +48,12 @@ func (s *Server) handleUnpublishServiceBinding(ctx context.Context, request mcp.
 		serviceVersion = sv
 	}
 
-	result, err := s.adtClient.UnpublishServiceBinding(ctx, serviceName, serviceVersion)
+	bindingVersion := "V4"
+	if bv, ok := request.Params.Arguments["binding_version"].(string); ok && bv != "" {
+		bindingVersion = bv
+	}
+
+	result, err := s.adtClient.UnpublishServiceBinding(ctx, serviceName, serviceVersion, bindingVersion)
 	if err != nil {
 		return newToolResultError(fmt.Sprintf("Failed to unpublish service binding: %v", err)), nil
 	}
