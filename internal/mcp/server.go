@@ -354,9 +354,10 @@ func (s *Server) registerTools(mode string, disabledGroups string, toolsConfig m
 		"CloneObject":         true,  // Copy object to new name
 		"GetClassInfo":        true,  // Quick class metadata
 
-		// Advanced/Edge cases (2)
-		"LockObject":   true,
-		"UnlockObject": true,
+		// Advanced/Edge cases (3)
+		"LockObject":    true,
+		"UnlockObject":  true,
+		"DeleteObject":  true,
 
 		// Service Binding Publish/Unpublish (RAP/OData)
 		"PublishServiceBinding":   true,

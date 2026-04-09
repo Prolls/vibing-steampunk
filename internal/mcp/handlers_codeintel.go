@@ -486,7 +486,30 @@ func (s *Server) handleWriteSource(ctx context.Context, request mcp.CallToolRequ
 	}
 
 	output, _ := json.MarshalIndent(result, "", "  ")
-	return mcp.NewToolResultText(string(output)), nil
+	text := string(output)
+
+	// Saved but NOT activated: add a clear hint so the AI knows to fix it immediately
+	if result.Mode != "" && result.Activation != nil && !result.Activation.Success {
+		text += "\n\n⚠ Object saved but NOT activated — fix the errors above before using it."
+		text += "\n  Tip: use ActivatePackage to batch-activate in dependency order once errors are fixed."
+
+		// Summarise activation errors on separate lines for visibility
+		var errLines []string
+		for _, msg := range result.Activation.Messages {
+			if msg.Type == "E" {
+				line := fmt.Sprintf("  ERROR line %d: %s", msg.Line, msg.ShortText)
+				if msg.ObjDescr != "" {
+					line += fmt.Sprintf(" [%s]", msg.ObjDescr)
+				}
+				errLines = append(errLines, line)
+			}
+		}
+		if len(errLines) > 0 {
+			text += "\n\nActivation errors:\n" + strings.Join(errLines, "\n")
+		}
+	}
+
+	return mcp.NewToolResultText(text), nil
 }
 
 // registerGrepObjects registers the unified GrepObjects tool
