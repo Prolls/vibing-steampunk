@@ -365,7 +365,7 @@ func (s *Server) handleInstallZADTVSP(ctx context.Context, request mcp.CallToolR
 			Description: "VSP WebSocket Handler",
 		}
 		err := s.adtClient.CreateObject(ctx, createOpts)
-		if err != nil {
+		if err != nil && !strings.Contains(err.Error(), "AlreadyExists") && !strings.Contains(err.Error(), "already exist") {
 			return newToolResultError(fmt.Sprintf("Failed to create package: %v", err)), nil
 		}
 		fmt.Fprintf(&sb, "  ✓ Package %s created\n\n", packageName)
