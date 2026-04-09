@@ -238,6 +238,13 @@ func (s *Server) GetMCPServer() *server.MCPServer {
 	return s.mcpServer
 }
 
+// registerToolAliases registers short alias names for frequently used tools.
+// Aliases are disabled by default to keep the tool list concise.
+func (s *Server) registerToolAliases(_ func(string) bool) {
+	// Aliases intentionally disabled — they bloat the tool list without adding value.
+	// Re-enable here if short names (gs, ws, es, ...) are desired.
+}
+
 // newToolResultError creates an error result for tool execution failures.
 func newToolResultError(message string) *mcp.CallToolResult {
 	result := mcp.NewToolResultText(message)
@@ -273,19 +280,13 @@ func (s *Server) requireActiveAMDPSession() *mcp.CallToolResult {
 // - handlers_read.go: GetProgram, GetClass, GetTable, etc.
 // - handlers_system.go: GetSystemInfo, GetFeatures, etc.
 // - handlers_analysis.go: GetCallGraph, TraceExecution, etc.
-// - handlers_codeintel.go: FindDefinition, FindReferences, CodeCompletion, etc.
+// - handlers_diagnostics.go: ListDumps, ListTraces, etc.
 // - handlers_devtools.go: SyntaxCheck, Activate, ATC, etc.
 // - handlers_crud.go: Lock, Create, Update, Delete, etc.
-// - handlers_debugger.go: SetBreakpoint, DebuggerListen, etc.
+// - handlers_debug.go: SetBreakpoint, DebuggerListen, etc.
 // - handlers_amdp.go: AMDPDebugger* handlers
 // - handlers_ui5.go: UI5ListApps, UI5GetApp, etc.
 // - handlers_git.go: GitTypes, GitExport
 // - handlers_report.go: RunReport, GetVariants, etc.
 // - handlers_install.go: InstallZADTVSP, InstallAbapGit, etc.
 // - handlers_transport.go: ListTransports, GetTransport, etc.
-//
-// Tool registration is in:
-// - tools_register.go: registerTools() and all register*Tools() methods
-// - tools_groups.go: toolGroups() - group definitions for --disabled-groups
-// - tools_focused.go: focusedToolSet() - focused mode whitelist
-// - tools_aliases.go: registerToolAliases() - short alias names

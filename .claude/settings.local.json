@@ -4,7 +4,8 @@
       "mcp__sap-adt__InstallZADTVSP",
       "mcp__sap-adt__CallRFC",
       "mcp__sap-adt__GitTypes",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(grep:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
