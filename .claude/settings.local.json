@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__sap-adt__InstallZADTVSP",
+      "mcp__sap-adt__CallRFC",
+      "mcp__sap-adt__GitTypes",
+      "Bash(go build:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "sap-adt"
+  ]
+}
